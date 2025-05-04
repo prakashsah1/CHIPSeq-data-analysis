@@ -1,0 +1,164 @@
+---
+title: "Stelloo et al 2018_fig2"
+author: "Prakash Sah"
+date: "2025-05-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+## Re-creating fig2 from the paper by Stelloo et a. 2018 (https://www.nature.com/articles/s41467-018-07270-2/figures/2)
+I did this analysis as a challenge from Ming Tommy Tang CHIPSeq analysis tutorial. The dataset is large (Stelloo et al 2018, GSE120738). So, to be able to do the analysis locally on my mac, I only downlaoded 6 files(2 cases, 2 control and 2 input sample files) for each chip factor (AR, H3K4me3, H3K27ac and H3K27me3) for analysis. For each CHIP factor, all cases, control and input fastq files were patient matched. fastq files can be downloaded from SRA run selector or European nucleotide archive (ENA). I downloaded metadata from SRA run selector and bash script file for downloading fastq files from ENA. Files can also be directly downloaded from ENA.
+
+Dowloading of fastq files, quality control, alignment (BWA), bigwig file generation and peak calling (MACS3) was done using bash scripts. For peak calling, the two inputs were merged and used as mixed input as in the paper. For H3K4me3, MACS3 was run with broadpeak setting as in the paper. The authors used different peak callers, however I have only used MACS3 to keep this analysis simple. 
+
+Fig 2a: Upload bigwig files on IGV web app or desktop app. Zoom on the region specified in the figure 2a, adjust color, save as image. Below are the IGV visualization of regions indicated in fig 2a for the samples I analyzed. 
+
+```{r}
+knitr::include_graphics("/Users/prakashsah/stelloo_fig2/Figures/fig2a.png")
+```
+
+Fig 2b. MACS3 peakcalling will generate multiple files. An excel file with peak lengths is also inlcuded. I extracted the peak lengths from this file as a text file using bash script (awk). Peak lengths from all the 4 samples were merged. A density plot then used to generate figure 2b.
+
+The combined peak length txt file read into rstudio. Merge all the combined peak length files and add a group identifier. Then make a density plot as in fig 2b (AR, H3K27ac, K3K4me3) and 2c (H3K27me3). The AR peaks are narrow as observed in the paper. Fig2c I generated however looks different and that can be due to only 4 samples inlcuded here and use of different peakcallers.
+```{r}
+library(ggplot2)
+library(dplyr)
+
+AR <- read.table("/Users/prakashsah/stelloo_fig2/data/AR/peak/AR_all_peaks.txt", col.names = "Size")
+H3K27ac <- read.table("/Users/prakashsah/stelloo_fig2/data/H3K27ac/peak/H3K27ac_all_peaks.txt", col.names = "Size")
+H3K4me3 <- read.table("/Users/prakashsah/stelloo_fig2/data/H3K4me3/broadpeak/H3K4me3_all_broadpeaks.txt", col.names = "Size")
+H3K27me3 <- read.table("/Users/prakashsah/stelloo_fig2/data/H3K27ac/peak/H3K27ac_all_peaks.txt", col.names = "Size")
+
+# add peak identifier
+AR$Group <- "AR"
+H3K27ac$Group <- "H3K27ac"
+H3K4me3$Group <- "H3K4me3"
+H3K27me3$Group <- "H3K27me3"
+
+# combine AR, H3K27ac and H3K4me3 peaks data
+combined_peaks <- bind_rows(AR, H3K27ac, H3K4me3)
+
+# Plot combined peaks
+ggplot(combined_peaks, aes(x = Size, color = Group)) +
+  geom_density(alpha = 0.4) +
+  scale_color_manual(values = c("green", "orange", "pink")) +
+  labs(title = "Peak Size Density Plot", x = "Peak Size (bp)", y = "Density") +
+  coord_cartesian(xlim = c(0, 3000)) +
+  theme_minimal()
+
+# Plot H3K27me3 peak size
+ggplot(H3K27me3, aes(x = Size)) +
+  geom_density(color = "blue", size = 1) + 
+  labs(x = "Peak Size (bp)", y = "Density") +
+  theme_minimal()
+```
+
+Fig 2d-e. For fig 2d and e, diffbind package used. For this a samplesheet of samplesheet as dataframe is needed. A dataframe was created inlcuding BAM and peak file paths. Using this dataframe, a diffbind objected was created and PCA plot and heatmap was made based on peak occupancy and count using functions from diffbind.
+
+```{r}
+library(DiffBind)
+
+
+# bam file paths
+AR_bams = list.files("/Users/prakashsah/stelloo_fig2/data/AR", pattern="^SRR.*\\.sorted.bam$", full.names=TRUE)
+H3K27ac_bams = list.files("/Users/prakashsah/stelloo_fig2/data/H3K27ac", pattern="^SRR.*\\.sorted.bam$", full.names=TRUE)
+H3K4me3_bams = list.files("/Users/prakashsah/stelloo_fig2/data/H3K4me3", pattern="^SRR.*\\.sorted.bam$", full.names=TRUE)
+H3K27me3_bams = list.files("/Users/prakashsah/stelloo_fig2/data/H3K27me3", pattern="^SRR.*\\.sorted.bam$", full.names=TRUE)
+
+# peak file paths
+AR_peaks = list.files("/Users/prakashsah/stelloo_fig2/data/AR/peak", pattern = "*.narrowPeak$", full.names = TRUE)
+H3K27ac_peaks = list.files("/Users/prakashsah/stelloo_fig2/data/H3K27ac/peak", pattern = "*.narrowPeak$", full.names = TRUE)
+H3K4me3_peaks = list.files("/Users/prakashsah/stelloo_fig2/data/H3K4me3/broadpeak", pattern = "*.broadPeak$", full.names = TRUE)
+H3K27me3_peaks = list.files("/Users/prakashsah/stelloo_fig2/data/H3K27me3/peak", pattern = "*.narrowPeak$", full.names = TRUE)
+
+# create sample sheet data frame for diffbind
+samples <- data.frame(
+  SampleID = c(
+    sub("\\.sorted\\.bam$", "", basename(AR_bams)),
+    sub("\\.sorted\\.bam$", "", basename(H3K27ac_bams)),
+    sub("\\.sorted\\.bam$", "", basename(H3K4me3_bams)),
+    sub("\\.sorted\\.bam$", "", basename(H3K27me3_bams))
+  ),
+  Condition = rep(c("Case", "Case", "Control", "Control"), 4),
+  Factor = rep(c("AR", "H3K27ac", "H3K4me3", "H3K27me3"), each = 4),
+  bamReads = c(AR_bams, H3K27ac_bams, H3K4me3_bams, H3K27me3_bams),
+  Peaks = c(AR_peaks, H3K27ac_peaks, H3K4me3_peaks, H3K27me3_peaks),
+  PeakCaller = rep("macs", 16)
+)
+
+# Read in data and create diffbind object
+diff_obj = dba(sampleSheet = samples)
+dba.plotHeatmap(diff_obj, attributes = DBA_FACTOR) # heatmap based on peak occupancy
+dba.plotPCA(diff_obj, DBA_FACTOR) # PCA plot based on peak occupancy
+
+# create count object and plot heatmap and PCA
+diff_obj_count = dba.count(diff_obj)
+dba.plotHeatmap(diff_obj_count, attributes = DBA_FACTOR)
+dba.plotPCA(diff_obj_count, DBA_FACTOR)
+```
+Fig 2g. I did not recreated fig 2f in this analysis as I am only using 4 samples/CHIP factor whereas the authors show % of overlapping peaks for at least ~50 samples for each factor. For fig 2g, a consensus peakset (peaks present in at least 2 samples) was dervied using DiffBind for each CHIP factor and peaks were annotated with CHIPseeker package. The percentages of peaks annotated to different region are similar to those in the paper except for H3K4me3 which could again be due to smaller subset of data used here.
+
+```{r}
+library(ChIPseeker)
+library(rtracklayer)
+library(TxDb.Hsapiens.UCSC.hg19.knownGene)
+library(org.Hs.eg.db)
+library(GenomicRanges)
+
+#create consensus peak file for each CHIP factor
+##subset diff_obj object by CHIP factor
+AR_obj <- dba(diff_obj, mask = diff_obj$samples$Factor == "AR")
+H3K27ac_obj <- dba(diff_obj, mask = diff_obj$samples$Factor == "H3K27ac")
+H3K4me3_obj <- dba(diff_obj, mask = diff_obj$samples$Factor == "H3K4me3")
+H3K27me3_obj <- dba(diff_obj, mask = diff_obj$samples$Factor == "H3K27me3")
+
+##generate consensus peakset for each CHIP factor (add to the AR_obj)
+AR_obj <- dba.peakset(AR_obj, consensus = DBA_FACTOR, minOverlap = 2)
+H3K27ac_obj <- dba.peakset(H3K27ac_obj, consensus = DBA_FACTOR, minOverlap = 2)
+H3K4me3_obj <- dba.peakset(H3K4me3_obj, consensus = DBA_FACTOR, minOverlap = 2)
+H3K27me3_obj <- dba.peakset(H3K27me3_obj, consensus = DBA_FACTOR, minOverlap = 2)
+
+##retrieve consensus peak files for each CHIP factor
+AR_consensus <- dba.peakset(AR_obj, bRetrieve = TRUE)
+H3K27ac_consensus <- dba.peakset(H3K27ac_obj, bRetrieve = TRUE)
+H3K4me3_consensus <- dba.peakset(H3K4me3_obj, bRetrieve = TRUE)
+H3K27me3_consensus <- dba.peakset(H3K27me3_obj, bRetrieve = TRUE)
+
+#annotate peaks 
+AR_annoPeak = annotatePeak(AR_consensus, tssRegion = c(-3000, 3000), TxDb = TxDb.Hsapiens.UCSC.hg19.knownGene, annoDb = "org.Hs.eg.db")
+H3K27ac_annoPeak = annotatePeak(H3K27ac_consensus, tssRegion = c(-3000, 3000), TxDb = TxDb.Hsapiens.UCSC.hg19.knownGene, annoDb = "org.Hs.eg.db")
+H3K4me3_annoPeak = annotatePeak(H3K4me3_consensus, tssRegion = c(-3000, 3000), TxDb = TxDb.Hsapiens.UCSC.hg19.knownGene, annoDb = "org.Hs.eg.db")
+H3K27me3_annoPeak = annotatePeak(H3K27me3_consensus, tssRegion = c(-3000, 3000), TxDb = TxDb.Hsapiens.UCSC.hg19.knownGene, annoDb = "org.Hs.eg.db")
+
+# plot piechart for annotated peaks
+plotAnnoPie(AR_annoPeak)
+plotAnnoPie(H3K27ac_annoPeak)
+plotAnnoPie(H3K4me3_annoPeak)
+plotAnnoPie(H3K27me3_annoPeak)
+```
+Fig 2h. The consensus peakset for AR was exported as bed file and seqpos motif tool on the galaxy server was used to identify top motifs in the peakset. Since, the strand information is blank in the bed file generated, a "+" was added to strand column. This is just to avoid seqpos motif tool throwing error. Also, seqpos limits peak bed file length to 5000, only the top 5000 peaks were used for motif analysis.
+
+```{r}
+# Use the motif table (html file) generated by Seqpos motif to generate as csv file by copying the motif (labelled as factor) and their z scores
+#read the csv table
+AR_motifs <- read.csv("/Users/prakashsah/stelloo_fig2/data/AR/AR_motifs.csv")
+
+# Select top motifs
+top_motifs <- AR_motifs %>%
+  dplyr::slice(1:10)
+
+# Plot
+ggplot(top_motifs, aes(x = reorder(factor, zscore), y = zscore)) +
+  geom_col(fill = "darkgrey") +
+  labs(
+    title = "Top motifs at AR binding sites", 
+    x = "Motif", 
+    y = "Z-score"
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+

@@ -1,0 +1,27 @@
+# Ignore large files
+*.bam
+*.sorted.bam
+*.sorted.bam.bai
+*.bai
+*.bw
+*.sam
+*.fastq
+*.fq
+*.fasta
+*.fa
+*.fai
+*.gz
+*.idx
+*.fa.sa
+*.fa.bwt
+
+
+# Ignore intermediate or local files
+*.log
+*.rds
+*.RData
+*.Rhistory
+
+# Ignore folders
+reference/
+bigwigs/
